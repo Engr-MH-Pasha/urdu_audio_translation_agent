@@ -87,8 +87,9 @@ def translate_text_to_urdu(client: Groq, original_text: str, source_language: st
             "Preserve original meaning, nuance, and tone. Output ONLY the Urdu translation without explanations, preambles, or markdown quotes."
         )
 
+        # Using llama-3.1-8b-instant for fast, reliable translation on Groq
         response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model="llama-3.1-8b-instant",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": f"Source Language: {source_language}\n\nTranscript to translate:\n{original_text}"}
@@ -100,7 +101,6 @@ def translate_text_to_urdu(client: Groq, original_text: str, source_language: st
     except Exception as e:
         st.error(f"Error during translation: {str(e)}")
         return ""
-
 
 # Sidebar: API Key Configuration
 with st.sidebar:
