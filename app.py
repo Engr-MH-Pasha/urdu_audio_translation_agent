@@ -7,12 +7,16 @@ from groq import Groq
 
 # Page Configuration
 st.set_page_config(
-    page_title="Multilingual Video to Urdu Translator",
+    page_title="Multilingual Video & Script to Urdu Translator",
     page_icon="🎬",
     layout="wide"
 )
 
-# Custom Styling for Text Rendering
+# Initialize Session State Variables
+if "video_transcript" not in st.session_state:
+    st.session_state["video_transcript"] = ""
+
+# Custom CSS for UI and Urdu RTL Text
 st.markdown("""
     <style>
         .urdu-text-container {
@@ -26,37 +30,23 @@ st.markdown("""
             border-right: 5px solid #28a745;
             color: #111;
         }
-        .original-text-container {
-            direction: ltr;
-            text-align: left;
-            font-size: 1rem;
-            line-height: 1.8;
-            padding: 1.5rem;
-            background-color: #f1f3f5;
-            border-radius: 8px;
-            border-left: 5px solid #007bff;
-            color: #111;
-        }
     </style>
 """, unsafe_allow_html=True)
 
 
 def extract_audio_ffmpeg(video_path: str, output_audio_path: str) -> bool:
-    """
-    Extracts complete, unclipped audio from video using FFmpeg directly.
-    Converts to 16kHz Mono MP3 which is optimal for Whisper speech recognition.
-    """
+    """Extracts complete audio track from video using FFmpeg directly."""
     try:
         ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
         command = [
             ffmpeg_exe,
-            "-y",                     # Overwrite output without asking
-            "-i", video_path,         # Input video file
-            "-vn",                    # Strip video stream
-            "-acodec", "libmp3lame",  # Standard MP3 codec
-            "-ar", "16000",           # 16kHz sample rate for Whisper
-            "-ac", "1",               # Convert to Mono to avoid channel issues
-            "-b:a", "64k",            # 64kbps bitrate
+            "-y",
+            "-i", video_path,
+            "-vn",
+            "-acodec", "libmp3lame",
+            "-ar", "16000",
+            "-ac", "1",
+            "-b:a", "64k",
             output_audio_path
         ]
         result = subprocess.run(
@@ -67,15 +57,12 @@ def extract_audio_ffmpeg(video_path: str, output_audio_path: str) -> bool:
         )
         return result.returncode == 0
     except Exception as e:
-        st.error(f"FFmpeg audio extraction error: {str(e)}")
+        st.error(f"FFmpeg extraction error: {str(e)}")
         return False
 
 
 def transcribe_audio_with_groq(client: Groq, audio_path: str, lang_code: str = None) -> str:
-    """
-    Transcribes audio with Groq Whisper-large-v3.
-    Uses temperature=0.0 to prevent hallucinations and premature cutoffs.
-    """
+    """Transcribes audio using Groq Whisper-large-v3 model."""
     try:
         with open(audio_path, "rb") as file:
             transcription_kwargs = {
@@ -89,7 +76,6 @@ def transcribe_audio_with_groq(client: Groq, audio_path: str, lang_code: str = N
 
             transcription = client.audio.transcriptions.create(**transcription_kwargs)
 
-            # Extract full text across all segments
             if hasattr(transcription, "text"):
                 return transcription.text.strip()
             elif isinstance(transcription, dict) and "text" in transcription:
@@ -101,9 +87,7 @@ def transcribe_audio_with_groq(client: Groq, audio_path: str, lang_code: str = N
 
 
 def translate_text_to_urdu(client: Groq, original_text: str, source_language: str) -> str:
-    """
-    Translates the full transcript into Urdu using llama-3.1-8b-instant on Groq.
-    """
+    """Translates the input text into fluent, natural Urdu using Llama on Groq."""
     try:
         system_prompt = (
             "You are an expert translator specializing in Arabic, English, Persian, and Turkish to Urdu translations.\n"
@@ -112,7 +96,7 @@ def translate_text_to_urdu(client: Groq, original_text: str, source_language: st
         )
 
         response = client.chat.completions.create(
-            model="openai/gpt-oss-120b",
+            model="llama-3.1-8b-instant",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": f"Source Language: {source_language}\n\nFull Text to Translate:\n{original_text}"}
@@ -126,7 +110,7 @@ def translate_text_to_urdu(client: Groq, original_text: str, source_language: st
         return ""
 
 
-# Sidebar: Configuration
+# Sidebar Configuration
 with st.sidebar:
     st.header("Settings")
     groq_api_key = st.text_input(
@@ -139,35 +123,6 @@ with st.sidebar:
         groq_api_key = st.secrets["GROQ_API_KEY"]
 
     st.markdown("---")
-    st.markdown("""
-    **Supported Source Languages:**
-    - Arabic (العربية)
-    - English
-    - Persian (فارسی)
-    - Turkish (Türkçe)
-
-    **Target Output:**
-    - Urdu Transcript (اردو ترجمہ)
-    """)
-
-
-# Main Interface
-st.title("Multilingual Video to Urdu Audio Translator")
-st.write(
-    "Upload a video file (Arabic, English, Persian, or Turkish). "
-    "The audio will be extracted, fully transcribed via Whisper-large-v3, and translated into fluent Urdu."
-)
-
-col1, col2 = st.columns([2, 1])
-
-with col1:
-    uploaded_file = st.file_uploader(
-        "Upload Video File",
-        type=["mp4", "mkv", "mov", "avi", "webm"],
-        help="Upload short or long videos."
-    )
-
-with col2:
     language_mapping = {
         "Auto-Detect": None,
         "Arabic": "ar",
@@ -175,68 +130,106 @@ with col2:
         "Persian (Farsi)": "fa",
         "Turkish": "tr"
     }
-    selected_language = st.selectbox("Source Language in Video", list(language_mapping.keys()))
+    selected_language = st.selectbox("Source Language", list(language_mapping.keys()))
 
-if uploaded_file is not None:
-    if not groq_api_key:
-        st.warning("Please provide a valid Groq API Key to proceed.")
-    else:
-        if st.button("Process Full Video", type="primary"):
-            client = Groq(api_key=groq_api_key)
+    st.markdown("---")
+    st.markdown("""
+    **Features:**
+    - Transcribe Video Audio (Whisper Large v3)
+    - Manual Script Input & Direct Translation
+    - Editable Transcript before Translation
+    - Accurate Urdu Output (Llama 3.1)
+    """)
 
-            with tempfile.TemporaryDirectory() as temp_dir:
-                video_suffix = os.path.splitext(uploaded_file.name)[1]
-                temp_video_path = os.path.join(temp_dir, f"input_video{video_suffix}")
-                temp_audio_path = os.path.join(temp_dir, "extracted_audio.mp3")
 
-                # Save uploaded buffer
-                with open(temp_video_path, "wb") as f:
-                    f.write(uploaded_file.getbuffer())
+# Main Interface
+st.title("Multilingual Video & Script to Urdu Translator")
+st.write("Convert Arabic, English, Persian, or Turkish video speech or written transcripts into fluent Urdu.")
 
-                # Step 1: Extract Audio via direct FFmpeg
-                with st.spinner("Extracting complete audio track with FFmpeg..."):
-                    audio_success = extract_audio_ffmpeg(temp_video_path, temp_audio_path)
+if not groq_api_key:
+    st.warning("Please provide a valid Groq API Key in the sidebar to proceed.")
+else:
+    client = Groq(api_key=groq_api_key)
 
-                if not audio_success or not os.path.exists(temp_audio_path):
-                    st.error("Audio extraction failed. Please ensure the video has an active audio stream.")
-                else:
-                    # Provide audio preview so you can verify the extracted duration
-                    with st.expander("Extracted Audio Track (Click to play/verify duration)"):
-                        with open(temp_audio_path, "rb") as audio_file:
-                            st.audio(audio_file.read(), format="audio/mp3")
+    tab_video, tab_direct_text = st.tabs(["📹 Video Upload Mode", "✍️ Direct Script / Text Mode"])
 
-                    # Step 2: Transcribe via Groq Whisper
-                    with st.spinner("Transcribing full speech with Groq Whisper..."):
-                        lang_code = language_mapping[selected_language]
-                        transcript = transcribe_audio_with_groq(client, temp_audio_path, lang_code)
+    # --- TAB 1: VIDEO UPLOAD MODE ---
+    with tab_video:
+        uploaded_file = st.file_uploader(
+            "Upload Video File",
+            type=["mp4", "mkv", "mov", "avi", "webm"],
+            key="video_uploader"
+        )
 
-                    if not transcript:
-                        st.warning("No speech could be recognized in the audio track.")
+        if uploaded_file is not None:
+            if st.button("Extract & Transcribe Audio", type="secondary"):
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    video_suffix = os.path.splitext(uploaded_file.name)[1]
+                    temp_video_path = os.path.join(temp_dir, f"input_video{video_suffix}")
+                    temp_audio_path = os.path.join(temp_dir, "extracted_audio.mp3")
+
+                    with open(temp_video_path, "wb") as f:
+                        f.write(uploaded_file.getbuffer())
+
+                    with st.spinner("Extracting complete audio track with FFmpeg..."):
+                        audio_success = extract_audio_ffmpeg(temp_video_path, temp_audio_path)
+
+                    if not audio_success:
+                        st.error("Audio extraction failed. Please ensure the video has an active audio track.")
                     else:
-                        # Step 3: Translate to Urdu
-                        with st.spinner("Translating transcript into fluent Urdu..."):
-                            urdu_translation = translate_text_to_urdu(client, transcript, selected_language)
+                        with st.spinner("Transcribing speech with Groq Whisper..."):
+                            lang_code = language_mapping[selected_language]
+                            transcript_result = transcribe_audio_with_groq(client, temp_audio_path, lang_code)
+                            st.session_state["video_transcript"] = transcript_result
 
-                        st.success("Complete processing finished successfully!")
+        # Editable Transcript Section
+        st.markdown("### Original Transcript (Editable)")
+        editable_transcript = st.text_area(
+            "Review or edit the transcribed text before translation:",
+            value=st.session_state["video_transcript"],
+            height=180,
+            key="video_text_editor"
+        )
 
-                        tab_urdu, tab_original = st.tabs(["Urdu Translation", "Original Transcript"])
+        if st.button("Translate Transcript to Urdu", type="primary", key="btn_translate_video"):
+            if not editable_transcript.strip():
+                st.warning("No transcript available. Please extract audio or type the text above.")
+            else:
+                with st.spinner("Translating text into fluent Urdu..."):
+                    urdu_output = translate_text_to_urdu(client, editable_transcript, selected_language)
 
-                        with tab_urdu:
-                            st.subheader("Urdu Text")
-                            st.markdown(f'<div class="urdu-text-container">{urdu_translation}</div>', unsafe_allow_html=True)
-                            st.download_button(
-                                label="Download Urdu Translation",
-                                data=urdu_translation,
-                                file_name="urdu_translation.txt",
-                                mime="text/plain; charset=utf-8"
-                            )
+                if urdu_output:
+                    st.markdown("### Urdu Translation")
+                    st.markdown(f'<div class="urdu-text-container">{urdu_output}</div>', unsafe_allow_html=True)
+                    st.download_button(
+                        label="Download Urdu Text",
+                        data=urdu_output,
+                        file_name="urdu_translation.txt",
+                        mime="text/plain; charset=utf-8"
+                    )
 
-                        with tab_original:
-                            st.subheader("Original Speech Transcript")
-                            st.markdown(f'<div class="original-text-container">{transcript}</div>', unsafe_allow_html=True)
-                            st.download_button(
-                                label="Download Original Transcript",
-                                data=transcript,
-                                file_name="original_transcript.txt",
-                                mime="text/plain; charset=utf-8"
-                            )
+    # --- TAB 2: DIRECT TEXT / SCRIPT MODE ---
+    with tab_direct_text:
+        st.write("If you don't have a video, write or paste the script below to translate directly into Urdu:")
+        direct_input_text = st.text_area(
+            "Enter original script here (Arabic, English, Persian, Turkish):",
+            height=220,
+            placeholder="Type or paste the speech transcript here..."
+        )
+
+        if st.button("Translate Text to Urdu", type="primary", key="btn_translate_direct"):
+            if not direct_input_text.strip():
+                st.warning("Please enter some text to translate.")
+            else:
+                with st.spinner("Translating script into fluent Urdu..."):
+                    direct_urdu_output = translate_text_to_urdu(client, direct_input_text, selected_language)
+
+                if direct_urdu_output:
+                    st.markdown("### Urdu Translation")
+                    st.markdown(f'<div class="urdu-text-container">{direct_urdu_output}</div>', unsafe_allow_html=True)
+                    st.download_button(
+                        label="Download Urdu Text",
+                        data=direct_urdu_output,
+                        file_name="direct_urdu_translation.txt",
+                        mime="text/plain; charset=utf-8"
+                    )
