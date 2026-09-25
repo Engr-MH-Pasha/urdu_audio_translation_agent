@@ -112,7 +112,7 @@ def translate_text_to_urdu(client: Groq, original_text: str, source_language: st
         )
 
         response = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
+            model="openai/gpt-oss-120b",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": f"Source Language: {source_language}\n\nFull Text to Translate:\n{original_text}"}
