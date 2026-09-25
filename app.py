@@ -16,7 +16,7 @@ st.set_page_config(
 if "video_transcript" not in st.session_state:
     st.session_state["video_transcript"] = ""
 
-# Custom CSS for UI and Urdu RTL Text
+# Custom CSS for UI and Urdu RTL Text Formatting
 st.markdown("""
     <style>
         .urdu-text-container {
@@ -32,6 +32,20 @@ st.markdown("""
         }
     </style>
 """, unsafe_allow_html=True)
+
+
+def get_available_chat_models(client: Groq) -> list:
+    """Fetches all active text/chat models available for the provided Groq API key."""
+    try:
+        models = client.models.list()
+        chat_models = [
+            m.id for m in models.data
+            # Exclude speech recognition models to keep only chat/translation LLMs
+            if "whisper" not in m.id.lower()
+        ]
+        return chat_models if chat_models else ["llama-3.1-8b-instant"]
+    except Exception as e:
+        return ["mixtral-8x7b-32768", "gemma2-9b-it", "llama-3.2-3b-preview"]
 
 
 def extract_audio_ffmpeg(video_path: str, output_audio_path: str) -> bool:
@@ -86,8 +100,8 @@ def transcribe_audio_with_groq(client: Groq, audio_path: str, lang_code: str = N
         return ""
 
 
-def translate_text_to_urdu(client: Groq, original_text: str, source_language: str) -> str:
-    """Translates the input text into fluent, natural Urdu using Llama on Groq."""
+def translate_text_to_urdu(client: Groq, original_text: str, source_language: str, model_name: str) -> str:
+    """Translates the input text into fluent, natural Urdu using the selected Groq model."""
     try:
         system_prompt = (
             "You are an expert translator specializing in Arabic, English, Persian, and Turkish to Urdu translations.\n"
@@ -96,7 +110,7 @@ def translate_text_to_urdu(client: Groq, original_text: str, source_language: st
         )
 
         response = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
+            model=model_name,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": f"Source Language: {source_language}\n\nFull Text to Translate:\n{original_text}"}
@@ -132,13 +146,31 @@ with st.sidebar:
     }
     selected_language = st.selectbox("Source Language", list(language_mapping.keys()))
 
+    # Dynamic Model Selection based on API Key availability
+    st.markdown("---")
+    selected_model = None
+    if groq_api_key:
+        try:
+            temp_client = Groq(api_key=groq_api_key)
+            available_models = get_available_chat_models(temp_client)
+            # Default to a robust model if available, else first in list
+            default_index = 0
+            if "mixtral-8x7b-32768" in available_models:
+                default_index = available_models.index("mixtral-8x7b-32768")
+            selected_model = st.selectbox("Select Translation Model", available_models, index=default_index)
+        except Exception:
+            st.error("Invalid API Key or connection error.")
+    else:
+        st.info("Enter API key to load available LLM models.")
+
     st.markdown("---")
     st.markdown("""
     **Features:**
-    - Transcribe Video Audio (Whisper Large v3)
-    - Manual Script Input & Direct Translation
-    - Editable Transcript before Translation
-    - Accurate Urdu Output (Llama 3.1)
+    - Fast Audio Extraction (FFmpeg)
+    - Speech-to-Text (Whisper Large v3)
+    - Manual Script Input Mode
+    - Editable Transcript Feature
+    - Accurate Urdu Output (Groq LLMs)
     """)
 
 
@@ -146,7 +178,7 @@ with st.sidebar:
 st.title("Multilingual Video & Script to Urdu Translator")
 st.write("Convert Arabic, English, Persian, or Turkish video speech or written transcripts into fluent Urdu.")
 
-if not groq_api_key:
+if not groq_api_key or not selected_model:
     st.warning("Please provide a valid Groq API Key in the sidebar to proceed.")
 else:
     client = Groq(api_key=groq_api_key)
@@ -195,8 +227,8 @@ else:
             if not editable_transcript.strip():
                 st.warning("No transcript available. Please extract audio or type the text above.")
             else:
-                with st.spinner("Translating text into fluent Urdu..."):
-                    urdu_output = translate_text_to_urdu(client, editable_transcript, selected_language)
+                with st.spinner(f"Translating text into fluent Urdu using {selected_model}..."):
+                    urdu_output = translate_text_to_urdu(client, editable_transcript, selected_language, selected_model)
 
                 if urdu_output:
                     st.markdown("### Urdu Translation")
@@ -214,15 +246,15 @@ else:
         direct_input_text = st.text_area(
             "Enter original script here (Arabic, English, Persian, Turkish):",
             height=220,
-            placeholder="Type or paste the speech transcript here..."
+            placeholder="Type or paste the text here..."
         )
 
         if st.button("Translate Text to Urdu", type="primary", key="btn_translate_direct"):
             if not direct_input_text.strip():
                 st.warning("Please enter some text to translate.")
             else:
-                with st.spinner("Translating script into fluent Urdu..."):
-                    direct_urdu_output = translate_text_to_urdu(client, direct_input_text, selected_language)
+                with st.spinner(f"Translating script into fluent Urdu using {selected_model}..."):
+                    direct_urdu_output = translate_text_to_urdu(client, direct_input_text, selected_language, selected_model)
 
                 if direct_urdu_output:
                     st.markdown("### Urdu Translation")
